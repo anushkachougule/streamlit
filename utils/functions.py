@@ -235,7 +235,7 @@ def get_approved_choices():
 def run_notebook_from_github(
     notebook_name,
     parameters=None,
-    repo_owner="ModelEarth",
+    repo_owner="modelearth",
     repo_name="realitystream",
     path="models"
 ):
@@ -252,28 +252,43 @@ def run_notebook_from_github(
     temp_input_path, temp_output_path = None, None
 
     try:
-        # Download notebook content from GitHub
-        st.info(f"Downloading notebook '{notebook_name}' from GitHub...")
+         # Download notebook via RAW link (avoids contents-API encoding issues)
+        raw_url = f"https://github.com/{repo_owner}/{repo_name}/raw/refs/heads/main/{path}/{notebook_name}"
+        st.info(f"Fetching notebook from: {raw_url}")
 
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{path}/{notebook_name}"
-        headers = {"Accept": "application/vnd.github.v3+json"}
-        if "GITHUB_TOKEN" in st.secrets:
-            headers["Authorization"] = f"token {st.secrets['GITHUB_TOKEN']}"
+        headers = {}
+        if GITHUB_TOKEN:
+            headers["Authorization"] = f"token {GITHUB_TOKEN}"
 
-        response = requests.get(url, headers=headers, timeout=30)
-        if response.status_code != 200:
-            error_msg = f"Failed to download notebook: HTTP {response.status_code}"
+        resp = requests.get(raw_url, headers=headers, timeout=30)
+        if resp.status_code != 200:
+            error_msg = f"Failed to download notebook: HTTP {resp.status_code}"
             st.error(error_msg)
             return False, None, error_msg
 
-        file_data = response.json()
+        # RAW .ipynb is plain JSON text
+        notebook_content = resp.text
 
-        if file_data.get("encoding") == "base64":
-            notebook_content = base64.b64decode(file_data["content"]).decode("utf-8")
-        else:
-            error_msg = "Notebook content encoding not supported"
-            st.error(error_msg)
-            return False, None, error_msg
+        # Create temporary files
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ipynb", delete=False) as temp_input:
+            temp_input.write(notebook_content)
+            temp_input_path = temp_input.name
+
+        temp_output_path = temp_input_path.replace(".ipynb", "_output.ipynb")
+
+        st.info("Executing notebook with papermill...")
+
+        # Execute notebook with papermill
+        pm.execute_notebook(
+            input_path=temp_input_path,
+            output_path=temp_output_path,
+            parameters=parameters or {},
+            progress_bar=False,
+            log_output=True
+        )
+
+        st.success(f"Notebook '{notebook_name}' executed successfully!")
+        return True, temp_output_path, None
 
         # Create temporary files
         with tempfile.NamedTemporaryFile(mode="w", suffix=".ipynb", delete=False) as temp_input:
