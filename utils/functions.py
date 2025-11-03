@@ -11,7 +11,7 @@ import os
 
 # Creating a Dataframe with word-vectors in TF-IDF form and Target values
 
-github_token = st.secrets["GITHUB_TOKEN"]
+GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN") or os.getenv("GITHUB_TOKEN")
 
 def final_df(df, is_train, vectorizer, column):
 
@@ -140,12 +140,18 @@ def trainer(df, test_size, over_sample, vectorizer, model):
         "branch": "interaction_test",
            }
     
-    #determine upload status
-    response = requests.put(url, json=data, headers=headers)
-    if response.status_code == 201:
-        st.success("Report successfully uploaded to GitHub.")
+    # Only attempt a GitHub upload if we have a token
+    if not GITHUB_TOKEN:
+        st.info("Skipping GitHub upload (no token configured). You can still download the JSON below.")
     else:
-        st.error(f"Failed to upload: {response.content}")
+        try:
+            response = requests.put(url, json=data, headers=headers, timeout=30)
+            if response.status_code == 201:
+                st.success("Report successfully uploaded to GitHub.")
+            else:
+                st.error(f"Failed to upload: {response.status_code} – {response.content}")
+        except Exception as e:
+            st.error(f"Upload error: {e}")
 
     #create a download button for user to download the json file
     st.download_button(
